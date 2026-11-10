@@ -123,6 +123,11 @@ export class MirrorSession implements vscode.Disposable {
     return this.#state;
   }
 
+  /** The kind actually running, which a swap may have moved off the target's. */
+  get kind(): SourceKind {
+    return this.#kind;
+  }
+
   get endpoint(): StreamEndpoint | undefined {
     return this.#endpoint;
   }

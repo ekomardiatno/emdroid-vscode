@@ -47,6 +47,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let watcher: DeviceWatcher | undefined;
   let resolving: Promise<AdbClient | undefined> | undefined;
 
+  /**
+   * Serials with a session that adb last reported as not usable.
+   *
+   * The edge, not the level, is what matters: a device sitting in `device`
+   * state must not be reloaded every time the watcher polls, and one that has
+   * merely been unplugged must not be reloaded until it is actually back.
+   */
+  const away = new Set<string>();
+
+  /** Rebuilds the source for any mirrored device that has just come back. */
+  function resumeReturningDevices(devices: readonly AdbDevice[]): void {
+    const online = new Set(devices.filter((d) => d.state === 'device').map((d) => d.serial));
+    for (const serial of sessions.serials) {
+      if (!online.has(serial)) {
+        // Includes dropping off the list entirely, which is what an unplug
+        // looks like once adb has stopped tracking the device at all.
+        away.add(serial);
+      } else if (away.delete(serial)) {
+        void sessions.reload(serial);
+      }
+    }
+  }
+
   /** Resolves adb once, then reuses it. Returns undefined if adb is missing. */
   function ensureAdb(): Promise<AdbClient | undefined> {
     // Memoised on the promise, not the result, so two commands racing at
@@ -58,7 +81,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const deviceWatcher = new DeviceWatcher(adb, logger.scope('devices'));
         context.subscriptions.push(
           deviceWatcher,
-          deviceWatcher.onDidChangeDevices((devices) => tree.setDevices(devices)),
+          deviceWatcher.onDidChangeDevices((devices) => {
+            tree.setDevices(devices);
+            resumeReturningDevices(devices);
+          }),
         );
         client = adb;
         watcher = deviceWatcher;
@@ -180,6 +206,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
+      // A serial left in `away` from a previous session would make the next
+      // watcher tick rebuild a source that was just built, costing a ~2 s
+      // stall for nothing.
+      away.delete(info.serial);
+
       const config = readConfig();
       const kind = chooseSourceKind(config.source, info.sdkInt);
       // Reads the kind from the target rather than closing over `kind`: the
@@ -198,11 +229,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await saveScreenshot(adb, device, log, () => logger.show());
     }),
 
+    /**
+     * Rebuilds a live mirror's source in place; the panel stays open.
+     *
+     * Closing the tab would be the wrong answer to "reconnect": the user is
+     * asking for the picture back, not for their layout to change.
+     */
     vscode.commands.registerCommand('emdroid.reconnect', async (node?: DeviceNode) => {
       const device = await pickDevice(node);
       if (!device) return;
-      sessions.close(device.serial);
       await watcher?.refresh();
+      if (sessions.has(device.serial)) await sessions.reload(device.serial);
     }),
   );
 

@@ -151,12 +151,24 @@ export function parseWmSize(stdout: string): DisplaySize | undefined {
  * `mCurrentRotation` is the field `dumpsys window` prints on the reference
  * device, so it has to be listed: without it the only match in a real dump
  * would come from an unrelated line, or none at all.
+ *
+ * Two spellings, and the difference is not cosmetic. `ROTATION_<n>` names
+ * **degrees** -- `ROTATION_90` is one quarter turn, not ninety of them -- while
+ * the bare `mRotation=1` form is already a quarter-turn index. Reading the
+ * named form as an index is a silent failure rather than a loud one: portrait
+ * is `ROTATION_0`, which happens to agree, so rotation detection looks fine
+ * until the device is actually turned.
  */
 export function parseRotation(stdout: string): number | undefined {
-  const m =
-    /(?:mCurrentRotation|mCurrentOrientation|mRotation|orientation)=(?:ROTATION_)?(\d)/.exec(stdout);
+  const m = /(?:mCurrentRotation|mCurrentOrientation|mRotation|orientation)=(?:ROTATION_(\d+)|(\d))/.exec(
+    stdout,
+  );
   if (!m) return undefined;
-  const value = Number(m[1]);
+  if (m[1] !== undefined) {
+    const degrees = Number(m[1]);
+    return degrees % 90 === 0 && degrees < 360 ? degrees / 90 : undefined;
+  }
+  const value = Number(m[2]);
   return value >= 0 && value <= 3 ? value : undefined;
 }
 

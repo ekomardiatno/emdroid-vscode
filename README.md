@@ -12,13 +12,13 @@ cannot see. EMDroid decodes H.264 **in the webview**, so the picture arrives
 wherever the editor UI is, and the same build works in desktop VS Code and in
 [code-server](https://github.com/coder/code-server).
 
-> **Status: not published.** Phases 0 and 1 are code-complete with 132 passing
-> unit tests, and the host side is verified against a real device — `npm run
-> verify:device` drives the shipped adb, capture, input and teardown paths
-> against an attached phone and checks every number this README claims. What is
-> still unwalked is what needs human eyes: a frame actually painted in the
-> editor, and the proxy path in a real browser. The low-latency scrcpy source
-> (phase 2) is designed but not written. See [Roadmap](#roadmap).
+> **Status: not published.** Phases 0 and 1 are code-complete with 138 passing
+> unit tests, and the host side is verified against a real device in both
+> orientations — `npm run verify:device` drives the shipped adb, capture, input
+> and teardown paths against an attached phone and checks every number this
+> README claims. It paints 28–30 fps in desktop VS Code. What is still unwalked
+> is the proxy path in a real browser. The low-latency scrcpy source (phase 2)
+> is designed but not written. See [Roadmap](#roadmap).
 
 ---
 
@@ -182,11 +182,12 @@ npm test                                    # all
 node --test --import ./test/stub/register.mjs test/unit/annexb.test.ts
 ```
 
-132 tests cover the Annex B splitting, the SPS-derived codec string, the adb
-output parsers, pointer mapping, shell quoting, the persistent shell's framing
-and a full fixture session end to end — including the token guard, the binary
-framing and byte-identical access unit delivery. Every input is **real output
-measured from a real device**, not invented: parsing adb means parsing a
+138 tests cover the Annex B splitting, the SPS-derived codec string, the adb
+output parsers, pointer mapping, shell quoting, the persistent shell's framing,
+the input sink's scroll coalescing and a full fixture session end to end —
+including the token guard, the binary framing and byte-identical access unit
+delivery. Every input is **real output measured from a real device**, not
+invented: parsing adb means parsing a
 human-readable format with no contract, and pinning the exact strings is the
 only defence against drift.
 
@@ -204,17 +205,34 @@ sends `KEYCODE_WAKEUP` only — never a tap, which would open something), and th
 no `screenrecord` survives `dispose()`. It then prints the measured latency,
 frame rate and still cadence.
 
-It is worth the hour it took: it found three bugs the 132 unit tests could not
-see, all of which failed **silently** — the persistent shell was spawned with
+It is worth the hour it took. It found three bugs the unit suite could not see,
+all of which failed **silently** — the persistent shell was spawned with
 `stdin: 'ignore'`, so every tap and rotation read wrote to a dead pipe; a failed
 rotation read left the geometry undefined, which made a recorder restart change
 the stream's aspect ratio; and a timed-out command's late reply was handed to
 the next caller as their own output.
 
-Two things neither suite can prove, because they do not exist outside a browser:
-`asExternalUri` under code-server's proxy, and the WebCodecs decoder. Those stay
-manual — run the transport spike in desktop VS Code *and* in a real browser
-against your code-server host.
+Run it with the device **rotated**, too, not just flat on a desk. A fourth bug
+hid behind portrait being the one orientation where the wrong reading is also
+the right one: `dumpsys` prints `mCurrentRotation=ROTATION_90`, where the number
+is **degrees**, and reading it as a quarter-turn index gave 90, which is out of
+range, so the read fell back to 0. Every landscape looked like portrait and the
+recorder was never restarted. Forcing the rotation is two settings:
+
+```bash
+adb shell 'settings put system accelerometer_rotation 0; settings put system user_rotation 1'
+npm run verify:device            # expect "2400x1080, rotation 1" and a 720x324 stream
+adb shell 'settings put system user_rotation 0'
+adb shell 'settings put system accelerometer_rotation 1'
+```
+
+Three things no suite here can prove. `asExternalUri` under code-server's proxy
+and the WebCodecs decoder do not exist outside a browser, so run the transport
+spike in desktop VS Code *and* in a real browser against your code-server host.
+And unplugging the cable has to be done by hand: the device going away kills the
+`adb exec-out` pipe, which is deliberately *not* retried, so recovery is the
+session rebuilding its source once `adb track-devices` reports the serial back
+in `device` state — the panel stays open throughout.
 
 ### Notes for anyone extending this
 

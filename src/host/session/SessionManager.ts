@@ -26,6 +26,9 @@ interface ActiveSession {
   readonly session: MirrorSession;
   readonly panel: MirrorPanel;
   readonly target: SessionTarget;
+  /** Kept so a reconnect can rebuild the pair without reopening the panel. */
+  readonly build: SourceFactory;
+  readonly log: ScopedLogger;
 }
 
 /**
@@ -50,6 +53,41 @@ export class SessionManager implements vscode.Disposable {
 
   has(serial: string): boolean {
     return this.#sessions.has(serial);
+  }
+
+  /** The devices with a live panel, for whoever is watching adb. */
+  get serials(): string[] {
+    return [...this.#sessions.keys()];
+  }
+
+  /**
+   * Rebuilds the source for a session whose device went away and came back.
+   *
+   * Needed because an unplug is not something the source can retry through: the
+   * `adb exec-out` pipe dies with the connection, and `screenrecord` exiting
+   * against a gone device is classified as non-recoverable on purpose -- a
+   * backoff loop against a disconnected phone is just noise.
+   *
+   * A swap rather than a reopen. The panel, the socket and the decoder are all
+   * still fine, and the tab is where the user put it; only the two adb-facing
+   * objects are stale. `useSource` already stops and disposes the old pair
+   * before starting the new one, which is what keeps the single hardware
+   * encoder from being claimed twice.
+   */
+  async reload(serial: string): Promise<void> {
+    const active = this.#sessions.get(serial);
+    if (!active) return;
+    const kind = active.session.kind;
+    this.#log.info(`${serial} is back; rebuilding its ${kind} source`);
+    try {
+      const next = active.build(active.log, { ...active.target, kind });
+      await active.session.useSource(kind, next.source, next.input);
+    } catch (err) {
+      this.#log.error(`could not rebuild the source for ${serial}`, err);
+      await showFailure('source-failed', 'The mirror could not reconnect.', () =>
+        this.#logger.show(),
+      );
+    }
   }
 
   async open(target: SessionTarget, build: SourceFactory): Promise<void> {
@@ -88,7 +126,7 @@ export class SessionManager implements vscode.Disposable {
       return;
     }
 
-    const active: ActiveSession = { session, panel, target };
+    const active: ActiveSession = { session, panel, target, build, log };
     this.#sessions.set(target.serial, active);
 
     session.onDidChangeMetrics((metrics) => {

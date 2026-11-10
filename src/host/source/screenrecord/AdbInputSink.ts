@@ -10,8 +10,31 @@ import type { InputSink } from '../InputSink.js';
 /** `input` spawns an app_process per call, so one command at a time is the budget. */
 const COMMAND_TIMEOUT_MS = 4000;
 
-/** Duration handed to `input swipe` for a wheel notch. */
-const SCROLL_DURATION_MS = 120;
+/**
+ * Swipe velocity for a scroll, in device pixels per millisecond.
+ *
+ * The duration is derived from the distance rather than fixed, because
+ * `input swipe` ends in a fling whose momentum comes from the speed of its last
+ * segment. A constant duration means a coalesced swipe -- which is longer --
+ * also flies faster, and the extra fling distance compounds across swipes.
+ */
+const SCROLL_SPEED_PX_PER_MS = 4;
+
+/** Bounds on the derived duration: long enough to track, short enough to feel live. */
+const SCROLL_MIN_MS = 60;
+const SCROLL_MAX_MS = 250;
+
+/**
+ * Shortest scroll worth sending, in device pixels.
+ *
+ * Below `ViewConfiguration`'s touch slop -- 8 dp, so ~23 px at the reference
+ * device's 2.8125 density -- a DOWN and an UP at nearly the same place *is* a
+ * click, whatever we meant by it. A fine-grained wheel notch is a few pixels,
+ * so sending one immediately taps whatever is under the pointer: the user
+ * scrolls and opens a link. Short deltas are therefore kept, not sent, until
+ * they add up to something a finger could not have meant as a tap.
+ */
+const SCROLL_MIN_PX = 48;
 
 /** Just enough of `DisplayWatcher` to map coordinates; keeps this testable. */
 export interface GeometrySource {
@@ -33,7 +56,15 @@ export interface GeometrySource {
  *  - **~80-150 ms per command**, because each one is a fresh app_process. A
  *    60 Hz move stream would queue without bound, so moves are coalesced
  *    newest-wins while down/up are never dropped -- losing an `up` would leave
- *    the device believing a finger is still on the glass.
+ *    the device believing a finger is still on the glass. Scrolls coalesce too,
+ *    but by summing: a trackpad emits a wheel event every ~10 ms and keeps
+ *    sending momentum for about a second after the fingers lift, so a single
+ *    gesture is a hundred events that must become one swipe of their combined
+ *    distance. Queued, they outlive the gesture by tens of seconds, and since
+ *    every `input swipe` flings, the content accelerates with nothing able to
+ *    stop it. The sum is also held back until it clears the touch slop, because
+ *    a swipe shorter than that is a click -- so a fine-grained scroll would
+ *    otherwise open whatever is under the pointer.
  *  - **No shared downTime.** Each `input` invocation stamps its event with its
  *    own `uptimeMillis`, so a drag's MOVEs do not look like continuations of
  *    their DOWN to anything measuring velocity. Taps and drags land; flings and
@@ -53,6 +84,8 @@ export class AdbInputSink implements InputSink {
   #queue: string[] = [];
   /** The single most recent move, replaced rather than queued. */
   #pendingMove: string | undefined;
+  /** Scroll distance not yet sent, in device pixels, from the latest anchor. */
+  #pendingScroll: { x: number; y: number; dx: number; dy: number } | undefined;
   #inFlight = false;
   #down = false;
   #disposed = false;
@@ -124,17 +157,25 @@ export class AdbInputSink implements InputSink {
   }
 
   scroll(event: ScrollMessage): void {
+    if (this.#disposed) return;
     const geometry = this.#geometry.geometry;
     const from = this.#toDevice(event.x, event.y);
     if (!geometry || !from) return;
-    // Positive deltas mean the content moves up/left, which is a finger moving
-    // the same way -- so the swipe ends at a smaller coordinate.
-    const to = {
-      x: clamp(Math.round(from.x - event.dx * geometry.width), 0, geometry.width - 1),
-      y: clamp(Math.round(from.y - event.dy * geometry.height), 0, geometry.height - 1),
+    const dx = event.dx * geometry.width;
+    const dy = event.dy * geometry.height;
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
+    // Summed, not newest-wins: the gesture's total distance is the thing the
+    // user expressed, and a hundred notches each worth a few pixels would
+    // otherwise collapse into one of them. The anchor is the latest, which is
+    // where the pointer actually is.
+    const previous = this.#pendingScroll;
+    this.#pendingScroll = {
+      x: from.x,
+      y: from.y,
+      dx: (previous?.dx ?? 0) + dx,
+      dy: (previous?.dy ?? 0) + dy,
     };
-    if (to.x === from.x && to.y === from.y) return;
-    this.#push(`input swipe ${from.x} ${from.y} ${to.x} ${to.y} ${SCROLL_DURATION_MS}`);
+    void this.#drain();
   }
 
   key(event: KeyMessage): void {
@@ -169,10 +210,46 @@ export class AdbInputSink implements InputSink {
   #push(command: string): void {
     if (this.#disposed) return;
     // Any ordered command supersedes a queued move: the move was heading to a
-    // position this command already accounts for.
+    // position this command already accounts for. A pending scroll is *not*
+    // dropped -- a keystroke arriving mid-gesture has nothing to say about the
+    // distance the wheel has travelled, so discarding it would just lose scroll.
     this.#pendingMove = undefined;
     this.#queue.push(command);
     void this.#drain();
+  }
+
+  /**
+   * Turns the accumulated scroll delta into one swipe, and clears it.
+   *
+   * Returns undefined while the delta is still shorter than the touch slop, in
+   * which case it is **kept**: the next event adds to it rather than starting
+   * over, so a slow scroll arrives late but whole, and never as a tap.
+   */
+  #takeScrollCommand(): string | undefined {
+    const pending = this.#pendingScroll;
+    const geometry = this.#geometry.geometry;
+    if (!pending || !geometry) return undefined;
+    // Measured before clamping, so an anchor near the edge cannot leave the
+    // delta growing for ever against a target that never moves.
+    if (Math.hypot(pending.dx, pending.dy) < SCROLL_MIN_PX) return undefined;
+    this.#pendingScroll = undefined;
+
+    // Positive deltas mean the content moves up/left, which is a finger moving
+    // the same way -- so the swipe ends at a smaller coordinate.
+    const to = {
+      x: clamp(Math.round(pending.x - pending.dx), 0, geometry.width - 1),
+      y: clamp(Math.round(pending.y - pending.dy), 0, geometry.height - 1),
+    };
+    const distance = Math.hypot(to.x - pending.x, to.y - pending.y);
+    // Clamping can shorten the swipe back under the slop when the pointer is
+    // right at the edge. Sending it would be a tap on whatever is there.
+    if (distance < SCROLL_MIN_PX) return undefined;
+    const duration = clamp(
+      Math.round(distance / SCROLL_SPEED_PX_PER_MS),
+      SCROLL_MIN_MS,
+      SCROLL_MAX_MS,
+    );
+    return `input swipe ${pending.x} ${pending.y} ${to.x} ${to.y} ${duration}`;
   }
 
   #pushMove(command: string): void {
@@ -183,12 +260,17 @@ export class AdbInputSink implements InputSink {
 
   async #drain(): Promise<void> {
     if (this.#inFlight || this.#disposed) return;
+    // Ordered commands first -- a tap must not wait behind a scroll's tail --
+    // then the coalesced scroll, then the coalesced move.
     let command: string | undefined;
     if (this.#queue.length > 0) {
       command = this.#queue.shift();
     } else {
-      command = this.#pendingMove;
-      this.#pendingMove = undefined;
+      command = this.#takeScrollCommand();
+      if (command === undefined) {
+        command = this.#pendingMove;
+        this.#pendingMove = undefined;
+      }
     }
     if (command === undefined) return;
 
@@ -212,6 +294,7 @@ export class AdbInputSink implements InputSink {
     this.#disposed = true;
     this.#queue = [];
     this.#pendingMove = undefined;
+    this.#pendingScroll = undefined;
     // A session that ends mid-drag must lift the finger, or the device keeps
     // the touch and the next tap becomes a long-press.
     if (this.#down) void this.#shell.send('input motionevent UP 0 0');

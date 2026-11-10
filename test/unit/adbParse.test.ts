@@ -156,19 +156,37 @@ describe('parseWmSize', () => {
 });
 
 describe('parseRotation', () => {
-  it('reads the ROTATION_n form dumpsys actually prints', () => {
-    // Measured: `dumpsys window | grep -m1 mCurrentRotation` returns exactly
-    // `mCurrentRotation=ROTATION_0` on the reference device.
+  /**
+   * `ROTATION_n` names **degrees**, and that is the bug this suite asserted its
+   * way past once: portrait is `ROTATION_0` under either reading, so taking the
+   * name as a quarter-turn index looks right until the device is turned -- and
+   * then `ROTATION_90` is out of range, the read falls back to 0, and the
+   * recorder is never restarted.
+   *
+   * Measured on the reference device: `mLandscapeRotation=ROTATION_90`,
+   * `mSeascapeRotation=ROTATION_270`, `mUpsideDownRotation=ROTATION_180`, and
+   * `dumpsys window | grep -m1 mCurrentRotation` prints one of those four.
+   */
+  it('reads the ROTATION_n form dumpsys prints, which is in degrees', () => {
     assert.equal(parseRotation('mCurrentRotation=ROTATION_0'), 0);
-    assert.equal(parseRotation('  mRotation=ROTATION_3\n'), 3);
+    assert.equal(parseRotation('      mCurrentRotation=ROTATION_90\n'), 1);
+    assert.equal(parseRotation('      mCurrentRotation=ROTATION_180\n'), 2);
+    assert.equal(parseRotation('      mCurrentRotation=ROTATION_270\n'), 3);
   });
 
-  it('reads the bare numeric form', () => {
+  it('reads the bare numeric form, which is already a quarter turn', () => {
+    // The same dump prints `mRotation=0` a few lines above `mCurrentRotation`.
     assert.equal(parseRotation('mCurrentOrientation=1'), 1);
+    assert.equal(parseRotation('    mRotation=3 mDeferredRotationPauseCount=0'), 3);
   });
 
   it('rejects an out-of-range quarter turn', () => {
     assert.equal(parseRotation('mRotation=7'), undefined);
+  });
+
+  it('rejects a degree value that is not a quarter turn', () => {
+    assert.equal(parseRotation('mCurrentRotation=ROTATION_45'), undefined);
+    assert.equal(parseRotation('mCurrentRotation=ROTATION_360'), undefined);
   });
 
   it('returns undefined when the field is absent', () => {
