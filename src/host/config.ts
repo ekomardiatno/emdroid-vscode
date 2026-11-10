@@ -15,13 +15,27 @@ export interface EmdroidConfig {
 
 const SECTION = 'emdroid';
 
+/**
+ * Default bit rate, which has to suit the *worst* link the picture crosses.
+ *
+ * `screenrecord` treats this as a target and fills it regardless of how little
+ * the content moves, so it is a floor on bandwidth, not a ceiling on quality.
+ * Over code-server the frames leave the extension host's machine, and a home
+ * upstream is the narrowest part of that path -- the reference setup measured
+ * 3.7 Mbit/s up against 17 Mbit/s down, so an 8M capture queued permanently and
+ * every non-key unit was dropped under backpressure. 2M at the default
+ * 720-long-edge capture is still about five times scrcpy's own bits per pixel,
+ * so this costs nothing visible and the stream stays live.
+ */
+const DEFAULT_BIT_RATE = '2M';
+
 export function readConfig(): EmdroidConfig {
   const c = vscode.workspace.getConfiguration(SECTION);
   return {
     adbPath: c.get<string>('adbPath', '').trim(),
     scrcpyServerPath: c.get<string>('scrcpyServerPath', '').trim(),
     maxWidth: clampInt(c.get<number>('maxWidth', 720), 160, 2160, 720),
-    bitRate: sanitiseBitRate(c.get<string>('bitRate', '8M')),
+    bitRate: sanitiseBitRate(c.get<string>('bitRate', DEFAULT_BIT_RATE)),
     source: readSource(c.get<string>('source', 'auto')),
     showTouches: c.get<boolean>('showTouches', false),
     logLevel: c.get<string>('logLevel', 'info'),
@@ -50,5 +64,5 @@ function readSource(value: string): SourcePreference {
  * shape the flag accepts and reject anything else.
  */
 export function sanitiseBitRate(value: string): string {
-  return /^[0-9]{1,9}[KMkm]?$/.test(value.trim()) ? value.trim() : '8M';
+  return /^[0-9]{1,9}[KMkm]?$/.test(value.trim()) ? value.trim() : DEFAULT_BIT_RATE;
 }

@@ -165,9 +165,9 @@
         },
         "emdroid.bitRate": {
           "type": "string",
-          "default": "8M",
+          "default": "2M",
           "pattern": "^[0-9]+[KMkm]?$",
-          "description": "Video bit rate passed to the on-device encoder, e.g. 4M or 8000000."
+          "markdownDescription": "Video bit rate passed to the on-device encoder, e.g. `4M` or `8000000`. The encoder treats this as a target and will fill it, so a value above the link between the extension host and the browser makes the stream queue rather than look better."
         },
         "emdroid.source": {
           "type": "string",

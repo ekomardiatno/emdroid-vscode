@@ -83,7 +83,7 @@ than adb's `-d`.
 | `emdroid.adbPath` | *(auto)* | Machine-scoped, so a cloned repo's `.vscode/settings.json` cannot point it at an arbitrary executable. |
 | `emdroid.scrcpyServerPath` | *(bundled)* | Machine-scoped. Phase 2. |
 | `emdroid.maxWidth` | `720` | Longest edge of the mirrored video. Lower is faster. |
-| `emdroid.bitRate` | `8M` | Passed to the on-device encoder. |
+| `emdroid.bitRate` | `2M` | Passed to the on-device encoder, which treats it as a target and fills it. Raise it only if the link to the browser can carry it. |
 | `emdroid.source` | `auto` | `auto` \| `screenrecord` \| `still`. |
 | `emdroid.showTouches` | `false` | Reads the device's current value and restores it afterwards. |
 | `emdroid.logLevel` | `info` | `error` … `trace`. |
@@ -104,6 +104,15 @@ Stated plainly, because they are the reason phase 2 exists:
   `app_process` stamping its own `uptimeMillis`, so a drag's moves do not look
   like continuations of their down to anything measuring velocity. Taps and drags
   land.
+- **Over code-server the uplink, not the device, sets the quality.** The frames
+  are encoded on the device but leave from the machine running the extension
+  host, so on a remote setup they cross a home upstream — measured 3.7 Mbit/s up
+  against 17 Mbit/s down on the reference box. `screenrecord` fills whatever
+  `emdroid.bitRate` asks for whether or not the picture needs it, so a bit rate
+  above that link does not look better, it queues: the session passes
+  `BACKPRESSURE_BYTES` and starts dropping every non-key unit, which reads as a
+  frozen mirror. Hence the 2M default. Raise it for a local device on a desktop,
+  lower it if the log says `dropping units under backpressure`.
 - **Stills are 0.4–1.2 fps**, and which end you get depends on how compressible
   the screen is: `screencap -p` measured 2.3 MB in 2.6 s on a populated screen
   and 0.16 MB in 0.85 s on an idle one. `screencap -j` is unsupported on the
