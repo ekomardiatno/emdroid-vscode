@@ -11,7 +11,7 @@ wherever the editor UI is, and the same build works in desktop VS Code and in
 [code-server](https://github.com/coder/code-server).
 
 > **Status: not published, and not yet run against hardware.** Phases 0 and 1
-> are code-complete with 118 passing unit tests, but the two end-to-end gates —
+> are code-complete with 127 passing unit tests, but the two end-to-end gates —
 > a live mirror on a device, and the proxy path in a real browser — have not been
 > walked through yet. The low-latency scrcpy source (phase 2) is designed but not
 > written. See [Roadmap](#roadmap).
@@ -30,9 +30,9 @@ wherever the editor UI is, and the same build works in desktop VS Code and in
 - **Screenshot to a file** anywhere the editor can write.
 - **Rotation follows the device** — the stream re-configures and touch stays
   aligned.
-- **Degraded mode**: where video decoding is unavailable, `emdroid.source: still`
-  drives the same panel with `screencap` PNGs instead. Input stays fully
-  functional.
+- **Degraded mode, automatically.** If the webview reports it cannot decode
+  H.264, the session swaps itself to `screencap` stills **in the same tab** — no
+  setting, no reopened panel. Input stays fully functional.
 - **No orphaned recorders.** The on-device `screenrecord` holds the hardware
   encoder, so it is reaped before start and after stop; closing the tab stops it.
 
@@ -46,9 +46,9 @@ wherever the editor UI is, and the same build works in desktop VS Code and in
 - VS Code **1.90+** or code-server built on it.
 - For the video path, a webview with [WebCodecs](https://developer.mozilla.org/en-US/docs/Web/API/WebCodecs_API)
   (`VideoDecoder`). Desktop VS Code always has it; in a browser it depends on the
-  browser. The webview probes for it and logs what it found — see
-  `EMDroid: Show Diagnostics`. If it is missing, set `emdroid.source` to `still`;
-  EMDroid reports the capability but does not yet switch sources on its own.
+  browser. **No configuration needed either way** — the webview measures what it
+  can decode and the host switches to stills if the answer is "nothing", keeping
+  the same tab. `emdroid.source` forces the choice if you want to.
 
 ## Usage
 
@@ -176,7 +176,7 @@ npm test                                    # all
 node --test --import ./test/stub/register.mjs test/unit/annexb.test.ts
 ```
 
-118 tests cover the Annex B splitting, the SPS-derived codec string, the adb
+127 tests cover the Annex B splitting, the SPS-derived codec string, the adb
 output parsers, pointer mapping, shell quoting and a full fixture session end to
 end — including the token guard, the binary framing and byte-identical access
 unit delivery. Every input is **real output measured from a real device**, not

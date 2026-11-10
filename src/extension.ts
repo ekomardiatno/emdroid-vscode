@@ -148,10 +148,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       await sessions.open(
         { serial: 'fixture', model: 'EMDroid transport spike', kind: 'screenrecord' },
-        (sourceLog) => ({
-          source: new FixtureFrameSource(sourceLog, fixture.fsPath),
-          input: undefined,
-        }),
+        (sourceLog, sourceTarget) => {
+          // The spike is a fixture replay, so it has no still equivalent: a
+          // webview that cannot decode H.264 cannot run it at all. Refusing
+          // says so, rather than reporting a swap that did not happen.
+          if (sourceTarget.kind !== 'screenrecord') {
+            throw new Error('the transport spike has no still fallback');
+          }
+          return {
+            source: new FixtureFrameSource(sourceLog, fixture.fsPath),
+            input: undefined,
+          };
+        },
       );
     }),
 
@@ -174,8 +182,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       const config = readConfig();
       const kind = chooseSourceKind(config.source, info.sdkInt);
-      await sessions.open({ serial: info.serial, model: info.model, kind }, (sourceLog) =>
-        createSource(sourceLog, adb, info, config, kind),
+      // Reads the kind from the target rather than closing over `kind`: the
+      // factory is called again if the session has to change source, and the
+      // target is how it is told which one to build.
+      await sessions.open(
+        { serial: info.serial, model: info.model, kind },
+        (sourceLog, sourceTarget) => createSource(sourceLog, adb, info, config, sourceTarget.kind),
       );
     }),
 

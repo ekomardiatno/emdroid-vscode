@@ -9,7 +9,14 @@ import { MirrorStatusBar } from '../ui/statusBar.js';
 import { showFailure } from '../ui/errors.js';
 import { MirrorSession, type SessionTarget } from './MirrorSession.js';
 
-/** Builds the source/sink pair for a target. Phase 2 changes only this. */
+/**
+ * Builds the source/sink pair for a target. Phase 2 changes only this.
+ *
+ * Called more than once per session: if the webview turns out not to be able to
+ * decode video, it is asked again with `target.kind` set to something else. So
+ * it must read the kind from the target rather than capturing it, and may throw
+ * if it cannot build the kind asked for.
+ */
 export type SourceFactory = (
   log: ScopedLogger,
   target: SessionTarget,
@@ -93,6 +100,23 @@ export class SessionManager implements vscode.Disposable {
     });
 
     session.onDidProduceStill((still) => panel.post(still));
+
+    // The session knows the webview cannot decode; only this layer knows how to
+    // build a source. The panel is kept: the user opened that tab, and losing
+    // it to a capability check they did not make would be the wrong trade.
+    session.onDidRequestSource((kind) => {
+      void (async () => {
+        try {
+          const next = build(log, { ...target, kind });
+          await session.useSource(kind, next.source, next.input);
+        } catch (err) {
+          this.#log.error(`could not switch ${target.serial} to ${kind}`, err);
+          await showFailure('unsupported', `The mirror could not switch to ${kind}.`, () =>
+            this.#logger.show(),
+          );
+        }
+      })();
+    });
 
     session.onDidFail((failure) => {
       if (failure.recoverable) return;

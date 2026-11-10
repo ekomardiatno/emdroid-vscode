@@ -52,17 +52,25 @@ export interface SessionTarget {
 export class MirrorSession implements vscode.Disposable {
   readonly #log: ScopedLogger;
   readonly #server: StreamServer;
-  readonly #source: FrameSource;
-  readonly #input: InputSink | undefined;
   readonly #target: SessionTarget;
   readonly #sessionId: string;
   readonly #logLevel: string;
   readonly #disposables: vscode.Disposable[] = [];
+  /** Subscriptions to the current source/sink pair, dropped on a swap. */
+  #bundleSubs: vscode.Disposable[] = [];
+
+  #source: FrameSource;
+  #input: InputSink | undefined;
+  /** Starts at the target's kind, but a swap changes it. */
+  #kind: SourceKind;
+  /** Set while a swap is in flight, so a second request cannot race it. */
+  #pendingKind: SourceKind | undefined;
 
   readonly #stateEmitter = new vscode.EventEmitter<SessionState>();
   readonly #metricsEmitter = new vscode.EventEmitter<SessionMetrics>();
   readonly #failEmitter = new vscode.EventEmitter<SourceFailure>();
   readonly #stillEmitter = new vscode.EventEmitter<StillMessage>();
+  readonly #sourceEmitter = new vscode.EventEmitter<SourceKind>();
 
   #endpoint: StreamEndpoint | undefined;
   #state: SessionState = 'starting';
@@ -86,6 +94,12 @@ export class MirrorSession implements vscode.Disposable {
    * case this mode exists for includes "the WebSocket never connected".
    */
   readonly onDidProduceStill = this.#stillEmitter.event;
+  /**
+   * Asks the owner for a different kind of source, because only the owner knows
+   * how to build one. Fired when the webview reports it cannot decode video,
+   * which cannot be known until it has attached and probed.
+   */
+  readonly onDidRequestSource = this.#sourceEmitter.event;
 
   constructor(
     log: ScopedLogger,
@@ -98,6 +112,7 @@ export class MirrorSession implements vscode.Disposable {
     this.#log = log;
     this.#sessionId = sessionId;
     this.#target = target;
+    this.#kind = target.kind;
     this.#source = source;
     this.#input = input;
     this.#logLevel = logLevel;
@@ -130,32 +145,99 @@ export class MirrorSession implements vscode.Disposable {
       this.#server.onDidAttach(() => this.#onAttach()),
       this.#server.onDidDetach(() => this.#log.debug('stream detached')),
       this.#server.onDidReceiveMessage((msg) => this.#onMessage(msg)),
-      this.#source.onDidChangeFormat((format) => this.#onFormat(format)),
-      this.#source.onAccessUnit((unit) => this.#onAccessUnit(unit)),
-      this.#source.onDidFail((failure) => this.#onFail(failure)),
     );
-
-    if (this.#source.onStill) {
-      this.#disposables.push(this.#source.onStill((still) => this.#onStill(still)));
-    }
-
-    if (this.#input) {
-      this.#disposables.push(
-        this.#input.onDidMeasureLatency((ms) => {
-          this.#tapRttMs = ms;
-          this.#metricsEmitter.fire(this.metrics);
-        }),
-      );
-    }
+    this.#wireBundle();
 
     return {
       sessionId: this.#sessionId,
       streamUrl: this.#endpoint.wsUrl,
       serial: this.#target.serial,
       model: this.#target.model,
-      source: this.#target.kind,
+      source: this.#kind,
       logLevel: this.#logLevel,
     };
+  }
+
+  /**
+   * Subscribes to the current source and sink.
+   *
+   * Kept apart from the socket's subscriptions so that a swap can drop these
+   * alone: a stale `onAccessUnit` from a source that has been replaced would
+   * feed the decoder units from a different SPS.
+   */
+  #wireBundle(): void {
+    this.#bundleSubs.push(
+      this.#source.onDidChangeFormat((format) => this.#onFormat(format)),
+      this.#source.onAccessUnit((unit) => this.#onAccessUnit(unit)),
+      this.#source.onDidFail((failure) => this.#onFail(failure)),
+    );
+
+    if (this.#source.onStill) {
+      this.#bundleSubs.push(this.#source.onStill((still) => this.#onStill(still)));
+    }
+
+    if (this.#input) {
+      this.#bundleSubs.push(
+        this.#input.onDidMeasureLatency((ms) => {
+          this.#tapRttMs = ms;
+          this.#metricsEmitter.fire(this.metrics);
+        }),
+      );
+    }
+  }
+
+  /**
+   * Replaces the source and sink in place, keeping the socket and the panel.
+   *
+   * The alternative -- closing the panel and reopening it with a different kind
+   * -- would lose the tab, its position and its scroll into the user's layout,
+   * for a decision the user did not make.
+   *
+   * Both halves go together because the sink reads its geometry from the
+   * source: a sink outliving its source would keep mapping taps against a
+   * display size that has stopped being updated, so a rotation would silently
+   * send every tap to the wrong place.
+   */
+  async useSource(
+    kind: SourceKind,
+    source: FrameSource,
+    input: InputSink | undefined,
+  ): Promise<void> {
+    const previousSource = this.#source;
+    const previousInput = this.#input;
+    for (const d of this.#bundleSubs.splice(0)) d.dispose();
+
+    // Awaited rather than fired and forgotten: `screenrecord` holds the one
+    // hardware encoder, and whatever starts next while it is still running
+    // fails in a way that reads as "the device is broken".
+    try {
+      await previousSource.stop();
+    } catch (err) {
+      this.#log.debug(`stopping the previous source failed: ${String(err)}`);
+    }
+    previousSource.dispose();
+    previousInput?.dispose();
+
+    this.#kind = kind;
+    this.#source = source;
+    this.#input = input;
+    // A different source means a different SPS, so the cached unit would not
+    // decode against the next format even if the codec matched.
+    this.#lastKeyUnit = undefined;
+    this.#wireBundle();
+
+    this.#log.info(`source swapped to ${kind}`);
+    this.#setState('starting');
+    // Re-announced so the webview's log says what it is actually looking at.
+    this.#sendHello();
+    try {
+      await source.start();
+    } finally {
+      // Cleared only once the swap is over, so a start that fails can be
+      // retried on the next reconnect. A *build* that throws never reaches
+      // here, which is deliberate: that one would fail the same way forever.
+      this.#pendingKind = undefined;
+    }
   }
 
   /** Starts the source. Safe to call before the webview has attached. */
@@ -171,13 +253,7 @@ export class MirrorSession implements vscode.Disposable {
   }
 
   #onAttach(): void {
-    this.#server.send({
-      t: 'hello',
-      sessionId: this.#sessionId,
-      serial: this.#target.serial,
-      model: this.#target.model,
-      source: this.#target.kind,
-    });
+    this.#sendHello();
 
     const format = this.#source.format;
     if (format) this.#sendFormat(format);
@@ -191,6 +267,16 @@ export class MirrorSession implements vscode.Disposable {
       this.#server.sendAccessUnit(key.data, true, key.ptsUs);
     }
     this.#source.requestKeyFrame();
+  }
+
+  #sendHello(): void {
+    this.#server.send({
+      t: 'hello',
+      sessionId: this.#sessionId,
+      serial: this.#target.serial,
+      model: this.#target.model,
+      source: this.#kind,
+    });
   }
 
   #onFormat(format: VideoFormat): void {
@@ -253,11 +339,25 @@ export class MirrorSession implements vscode.Disposable {
 
   #onMessage(msg: WebviewMessage): void {
     switch (msg.t) {
-      case 'ready':
+      case 'ready': {
+        const caps = msg.capabilities;
         this.#log.info(
-          `webview ready: VideoDecoder=${msg.capabilities.videoDecoder} codecs=[${msg.capabilities.supportedCodecs.join(', ')}]`,
+          `webview ready: VideoDecoder=${caps.videoDecoder} codecs=[${caps.supportedCodecs.join(', ')}]`,
         );
+        // No decoder at all, or one that cannot do H.264, are the same thing
+        // from here: nothing we send will ever paint.
+        //
+        // Guarded twice because this has to be idempotent -- the webview
+        // re-announces `ready` on every reconnect, and a proxy that flaps can
+        // do that twice inside the second a swap takes.
+        const decodable = caps.videoDecoder && caps.supportedCodecs.length > 0;
+        if (!decodable && this.#kind !== 'still' && this.#pendingKind === undefined) {
+          this.#log.warn('this webview cannot decode H.264; switching to screencap stills');
+          this.#pendingKind = 'still';
+          this.#sourceEmitter.fire('still');
+        }
         break;
+      }
       case 'pointer':
         this.#input?.pointer(msg);
         break;
@@ -313,6 +413,7 @@ export class MirrorSession implements vscode.Disposable {
   dispose(): void {
     this.#clearStallTimer();
     void this.#source.stop();
+    for (const d of this.#bundleSubs.splice(0)) d.dispose();
     for (const d of this.#disposables.splice(0)) d.dispose();
     this.#source.dispose();
     this.#input?.dispose();
@@ -321,5 +422,6 @@ export class MirrorSession implements vscode.Disposable {
     this.#metricsEmitter.dispose();
     this.#failEmitter.dispose();
     this.#stillEmitter.dispose();
+    this.#sourceEmitter.dispose();
   }
 }
