@@ -1,0 +1,19 @@
+{
+  // Extension host bundle: node + the vscode API, and deliberately NO "DOM" lib,
+  // so host code cannot accidentally reference `window`/`document`.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "types": ["node", "vscode"],
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src/extension.ts", "src/host/**/*.ts", "src/common/**/*.ts"]
+}

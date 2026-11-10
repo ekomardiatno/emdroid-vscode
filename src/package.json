@@ -1,0 +1,4 @@
+{
+  "//": "Not a package. This marks src/ as ESM so `node --test` can type-strip and run the .ts sources directly without the MODULE_TYPELESS_PACKAGE_JSON reparse warning. The root package.json must stay typeless, because dist/extension.js is CommonJS and the extension host requires() it. esbuild sets each bundle's format explicitly and ignores this file.",
+  "type": "module"
+}

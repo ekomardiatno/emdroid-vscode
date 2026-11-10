@@ -1,0 +1,22 @@
+{
+  // src/common must run in BOTH bundles, so it is type-checked against neither
+  // node nor the DOM. If this project compiles, common/ structurally cannot
+  // reach `process`, `Buffer`, `window` or `document`.
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020"],
+    "types": [],
+    "module": "ES2020",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src/common/**/*.ts"]
+}

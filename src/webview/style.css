@@ -1,0 +1,111 @@
+/*
+ * The panel is a device screen plus a thin toolbar, and nothing else.
+ *
+ * All colour comes from VS Code's own theme variables so the panel follows the
+ * editor -- including in code-server, where the user may be on a different
+ * theme than the machine running the extension.
+ */
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+#stage {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  /* Not the editor background: a neutral surround makes the device edges read
+     as edges rather than as part of the page. */
+  background: #000;
+}
+
+/*
+ * A canvas is a replaced element, so its `width`/`height` attributes give it an
+ * intrinsic aspect ratio. That is what makes these two lines enough to letterbox
+ * correctly at any rotation -- and it is why `PointerMapper` can treat the
+ * element's bounding box as the picture and map coordinates linearly.
+ */
+#screen {
+  max-width: 100%;
+  max-height: 100%;
+  outline: none;
+  touch-action: none;
+  cursor: crosshair;
+  /* Chromium's default smoothing is right for downscaling a mirror. */
+  image-rendering: auto;
+}
+
+#screen:focus-visible {
+  box-shadow: 0 0 0 2px var(--vscode-focusBorder);
+}
+
+#overlay {
+  position: absolute;
+  inset: auto 0 1rem 0;
+  margin: 0 auto;
+  width: fit-content;
+  max-width: 80%;
+  padding: 0.4rem 0.8rem;
+  border-radius: 4px;
+  background: var(--vscode-notifications-background, rgba(0, 0, 0, 0.75));
+  color: var(--vscode-notifications-foreground, #fff);
+  border: 1px solid var(--vscode-notifications-border, transparent);
+  text-align: center;
+  pointer-events: none;
+}
+
+#overlay[hidden] {
+  display: none;
+}
+
+#toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.5rem;
+  border-top: 1px solid var(--vscode-panel-border, transparent);
+  background: var(--vscode-sideBar-background);
+}
+
+#toolbar button {
+  font: inherit;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 2px;
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  cursor: pointer;
+}
+
+#toolbar button:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+#toolbar button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+#stats {
+  margin-left: auto;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

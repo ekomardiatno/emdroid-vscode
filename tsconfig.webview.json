@@ -1,0 +1,23 @@
+{
+  // Webview bundle: the DOM, and deliberately NO node types, so webview code
+  // cannot import `node:*` or touch `process`.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  // No WebCodecs shim needed: lib.dom.d.ts carries VideoDecoder, VideoFrame and
+  // EncodedVideoChunk as of TypeScript 5.x.
+  "include": ["src/webview/**/*.ts", "src/common/**/*.ts"]
+}

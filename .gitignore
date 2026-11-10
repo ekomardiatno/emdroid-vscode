@@ -1,0 +1,13 @@
+node_modules/
+dist/
+out/
+*.vsix
+.DS_Store
+*.log
+
+# Local captures and scratch recordings. Deliberately not `*.h264`: the one
+# fixture in test/fixtures/ is committed, because the Annex B tests assert
+# against real device bytes and a fresh capture would not be the same ones.
+*.mp4
+/tmp/
+/scratch/

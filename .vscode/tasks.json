@@ -1,0 +1,40 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "watch",
+      "type": "npm",
+      "script": "watch",
+      "isBackground": true,
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "reveal": "never", "panel": "dedicated" },
+      "problemMatcher": {
+        "owner": "esbuild",
+        "fileLocation": ["absolute"],
+        "pattern": {
+          "regexp": "^(.*):(\\d+):(\\d+): (error|warning): (.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "message": 5
+        },
+        // The watcher never exits, so F5 would hang forever without an explicit
+        // signal that the first build is done. `report()` in esbuild.mjs logs
+        // `[name] build ok` on every rebuild, which is that signal.
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^\\[watch\\] watching$",
+          "endsPattern": "^\\[(host|webview|css)\\] build (ok|failed)$"
+        }
+      }
+    },
+    {
+      "label": "check",
+      "type": "npm",
+      "script": "check",
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": ["$tsc"]
+    }
+  ]
+}

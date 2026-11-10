@@ -1,0 +1,4 @@
+{
+  "//": "Not a package. Marks the tests as ESM; see src/package.json.",
+  "type": "module"
+}

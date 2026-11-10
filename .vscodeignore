@@ -1,0 +1,14 @@
+.vscode/**
+.github/**
+src/**
+test/**
+# The fixture ships. "Run Transport Spike" is the first thing to try when
+# nothing paints, so it has to work from an installed build, not just from src.
+!test/fixtures/**
+node_modules/**
+tsconfig*.json
+esbuild.mjs
+.gitignore
+.eslintrc*
+**/*.map
+**/*.ts

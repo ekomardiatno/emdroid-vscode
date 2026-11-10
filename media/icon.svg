@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Marketplace icon. Source for media/icon.png; rasterise with
+       `qlmanage -t -s 256 -o media media/icon.svg` then downscale to 128. -->
+  <rect width="128" height="128" rx="24" fill="#0b1014"/>
+  <rect x="40.5" y="20.5" width="47" height="87" rx="9" fill="#10171d" stroke="#f2a33c" stroke-width="4"/>
+  <path d="M56 26h16" stroke="#f2a33c" stroke-width="4" stroke-linecap="round" opacity="0.55"/>
+  <!-- streaming glyph: a play triangle breaking out of the device -->
+  <path d="M57 50.5 83 64 57 77.5Z" fill="#f2a33c"/>
+  <g fill="none" stroke="#f2a33c" stroke-width="4" stroke-linecap="round" opacity="0.5">
+    <path d="M95 52a17 17 0 0 1 0 24"/>
+    <path d="M106 42a31 31 0 0 1 0 44"/>
+  </g>
+</svg>

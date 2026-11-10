@@ -1,0 +1,56 @@
+EMDroid
+Copyright (c) 2026 Eko Mardiatno
+
+This product is licensed under the MIT License; see LICENSE.
+
+================================================================================
+Third-party components
+================================================================================
+
+scrcpy-server
+-------------
+The low-latency capture source (see src/host/source/scrcpy/) pushes a
+`scrcpy-server` jar to the device and speaks its socket protocol. When a jar is
+bundled it lives at vendor/scrcpy-server-<version> and is an unmodified binary
+redistribution of the server component of scrcpy.
+
+    scrcpy
+    Copyright (C) 2018 Genymobile
+    Copyright (C) 2018-2026 Romain Vimont
+    Licensed under the Apache License, Version 2.0
+    https://github.com/Genymobile/scrcpy
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+
+A verbatim copy of the Apache License 2.0 is in vendor/LICENSE-Apache-2.0.txt.
+EMDroid does not modify the jar; it is pinned by SHA-256 and verified before
+every push to the device.
+
+ws
+--
+The localhost stream server uses `ws` (MIT), Copyright (c) 2011 Einar Otto
+Stangvik and contributors. See node_modules/ws/LICENSE in a built package.
+
+Android Debug Bridge
+--------------------
+EMDroid invokes the `adb` executable from the Android SDK Platform Tools; it
+neither bundles nor redistributes it. Platform Tools are licensed by Google
+under the Android Software Development Kit License Agreement.
+
+================================================================================
+Test fixtures
+================================================================================
+
+test/fixtures/sample-540x1200.h264 is an H.264 Annex B capture of the author's
+own device screen, produced with `screenrecord`, and is covered by this
+project's MIT license.

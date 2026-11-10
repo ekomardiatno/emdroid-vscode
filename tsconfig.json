@@ -1,0 +1,13 @@
+{
+  // Editor convenience only: a loose superset so every file in src/ resolves in
+  // the IDE. The real contract is enforced by `npm run typecheck`, which runs
+  // tsconfig.common / .extension / .webview separately -- those are what stop
+  // host code seeing the DOM and webview code seeing node.
+  "extends": "./tsconfig.extension.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ES2022",
+    "moduleResolution": "bundler"
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "esbuild.mjs"]
+}

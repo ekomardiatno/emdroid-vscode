@@ -1,0 +1,227 @@
+{
+  "name": "emdroid",
+  "displayName": "EMDroid",
+  "description": "Mirror and control a connected Android device inside a VS Code editor tab. Works in desktop VS Code and in code-server.",
+  "version": "0.1.0",
+  "publisher": "ekomardiatno",
+  "license": "MIT",
+  "author": "Eko Mardiatno",
+  "homepage": "https://ekomardiatno.my.id",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ekomardiatno/emdroid-vscode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ekomardiatno/emdroid-vscode/issues"
+  },
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.90.0",
+    "node": ">=20"
+  },
+  "categories": [
+    "Other",
+    "Debuggers"
+  ],
+  "keywords": [
+    "android",
+    "adb",
+    "scrcpy",
+    "mirror",
+    "screen"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onView:emdroid.devices"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "emdroid",
+          "title": "EMDroid",
+          "icon": "media/device.svg"
+        }
+      ]
+    },
+    "views": {
+      "emdroid": [
+        {
+          "id": "emdroid.devices",
+          "name": "Devices",
+          "icon": "media/device.svg"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "emdroid.devices",
+        "contents": "No Android device detected.\n\nConnect a device over USB with USB debugging enabled, or pair one over Wi-Fi.\n\n[Refresh](command:emdroid.refreshDevices)\n[Show diagnostics](command:emdroid.showDiagnostics)"
+      }
+    ],
+    "commands": [
+      {
+        "command": "emdroid.mirror",
+        "title": "EMDroid: Mirror Device",
+        "icon": "$(device-mobile)"
+      },
+      {
+        "command": "emdroid.screenshot",
+        "title": "EMDroid: Take Screenshot",
+        "icon": "$(device-camera)"
+      },
+      {
+        "command": "emdroid.reconnect",
+        "title": "EMDroid: Reconnect Device",
+        "icon": "$(debug-restart)"
+      },
+      {
+        "command": "emdroid.refreshDevices",
+        "title": "EMDroid: Refresh Devices",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "emdroid.showDiagnostics",
+        "title": "EMDroid: Show Diagnostics",
+        "icon": "$(output)"
+      },
+      {
+        "command": "emdroid.transportSpike",
+        "title": "EMDroid: Run Transport Spike (fixture loop)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "emdroid.refreshDevices",
+          "when": "view == emdroid.devices",
+          "group": "navigation@1"
+        },
+        {
+          "command": "emdroid.showDiagnostics",
+          "when": "view == emdroid.devices",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "emdroid.mirror",
+          "when": "view == emdroid.devices && viewItem == emdroid.device.online",
+          "group": "inline@1"
+        },
+        {
+          "command": "emdroid.screenshot",
+          "when": "view == emdroid.devices && viewItem == emdroid.device.online",
+          "group": "inline@2"
+        },
+        {
+          "command": "emdroid.reconnect",
+          "when": "view == emdroid.devices && viewItem =~ /^emdroid\\.device\\./",
+          "group": "inline@3"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "emdroid.mirror"
+        },
+        {
+          "command": "emdroid.screenshot"
+        },
+        {
+          "command": "emdroid.reconnect"
+        },
+        {
+          "command": "emdroid.refreshDevices"
+        },
+        {
+          "command": "emdroid.showDiagnostics"
+        },
+        {
+          "command": "emdroid.transportSpike"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "EMDroid",
+      "properties": {
+        "emdroid.adbPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "Absolute path to the `adb` executable. Leave empty to auto-detect (`PATH`, `ANDROID_HOME`/`ANDROID_SDK_ROOT`, then the platform default SDK location)."
+        },
+        "emdroid.scrcpyServerPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "Absolute path to a `scrcpy-server` jar, used by the low-latency source. Leave empty to use the version bundled with the extension."
+        },
+        "emdroid.maxWidth": {
+          "type": "number",
+          "default": 720,
+          "minimum": 160,
+          "maximum": 2160,
+          "description": "Longest edge of the mirrored video, in pixels. Lower values reduce latency and bandwidth."
+        },
+        "emdroid.bitRate": {
+          "type": "string",
+          "default": "8M",
+          "pattern": "^[0-9]+[KMkm]?$",
+          "description": "Video bit rate passed to the on-device encoder, e.g. 4M or 8000000."
+        },
+        "emdroid.source": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "screenrecord",
+            "still"
+          ],
+          "enumDescriptions": [
+            "Pick the best source the device and editor support.",
+            "Stream H.264 from the on-device screenrecord binary (~1-2s latency).",
+            "Controllable stills via screencap (~0.4 fps). Use only when video decoding is unavailable."
+          ],
+          "description": "Which capture source to use."
+        },
+        "emdroid.showTouches": {
+          "type": "boolean",
+          "default": false,
+          "description": "Turn on the device's \"show taps\" developer setting while mirroring, so you can see where EMDroid is touching."
+        },
+        "emdroid.logLevel": {
+          "type": "string",
+          "default": "info",
+          "enum": [
+            "error",
+            "warn",
+            "info",
+            "debug",
+            "trace"
+          ],
+          "description": "Verbosity of the EMDroid output channel."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "clean": "rm -rf dist out",
+    "typecheck": "tsc -p tsconfig.common.json --noEmit && tsc -p tsconfig.extension.json --noEmit && tsc -p tsconfig.webview.json --noEmit",
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "package": "node esbuild.mjs --production",
+    "test": "node --test --import ./test/stub/register.mjs test/unit/*.test.ts",
+    "check": "npm run typecheck && npm run test && npm run build",
+    "vscode:prepublish": "npm run package"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "@types/ws": "^8.5.12",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.6.0"
+  }
+}
