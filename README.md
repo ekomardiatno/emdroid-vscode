@@ -1,5 +1,7 @@
 # EMDroid
 
+[![check](https://github.com/ekomardiatno/emdroid-vscode/actions/workflows/check.yml/badge.svg)](https://github.com/ekomardiatno/emdroid-vscode/actions/workflows/check.yml)
+
 Mirror and control a connected Android device **inside a VS Code editor tab** —
 including when VS Code is running in a browser.
 
