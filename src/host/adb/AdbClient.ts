@@ -67,6 +67,21 @@ export class AdbClient {
     });
   }
 
+  /**
+   * Spawns a child whose stdin we can write to, for `PersistentShell`.
+   *
+   * A separate method rather than an option, because the two cases want
+   * opposite defaults and getting it wrong is silent: `screenrecord` and
+   * `logcat` must have stdin on `ignore`, while `adb shell` handed /dev/null
+   * reads EOF and exits immediately -- so the shell appears to start, every
+   * command writes to a closed pipe, and taps simply never arrive.
+   */
+  spawnInteractive(serial: string, args: readonly string[]): ChildProcess {
+    return this.#registry.spawn(this.#adbPath, ['-s', serial, ...args], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+  }
+
   /** Spawns against no particular device, for `track-devices`. */
   spawnGlobal(args: readonly string[]): ChildProcess {
     return this.#registry.spawn(this.#adbPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });

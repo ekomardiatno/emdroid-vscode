@@ -40,8 +40,9 @@ export class PersistentShell implements vscode.Disposable {
     if (this.#starting) return this.#starting;
 
     this.#starting = (async () => {
-      // `shell` rather than `exec-out`: we need an interactive stdin.
-      const child = this.#client.spawn(this.#serial, ['shell']);
+      // `shell` rather than `exec-out`, and `spawnInteractive` rather than
+      // `spawn`: this is the one child we write to.
+      const child = this.#client.spawnInteractive(this.#serial, ['shell']);
       if (child.stdin) child.stdin.setDefaultEncoding('utf8');
       child.stdout?.setEncoding('utf8');
       child.stdout?.on('data', (chunk: string) => this.#onData(chunk));
@@ -51,12 +52,18 @@ export class PersistentShell implements vscode.Disposable {
         // `grep -m1` closing a dumpsys pipe early is normal and noisy.
         if (text !== '' && !text.includes('Broken pipe')) this.#log.debug(`shell stderr: ${text}`);
       });
+      // Both handlers are identity-guarded. A restart has already cleared
+      // `#child` and failed the queue, and by the time the old child's `close`
+      // arrives a replacement may be live -- clearing it here would discard a
+      // working shell and reject commands that are about to succeed.
       child.once('close', (code, signal) => {
         this.#log.debug(`persistent shell exited (code=${code} signal=${signal})`);
+        if (this.#child !== child) return;
         this.#child = undefined;
         this.#failAll(new Error('adb shell closed'));
       });
       child.once('error', (err) => {
+        if (this.#child !== child) return;
         this.#child = undefined;
         this.#failAll(err instanceof Error ? err : new Error(String(err)));
       });
@@ -85,7 +92,6 @@ export class PersistentShell implements vscode.Disposable {
     // A reply that never terminates would grow this without bound.
     if (this.#buffer.length > 1 << 22) {
       this.#log.warn('persistent shell buffer overflow; restarting the shell');
-      this.#buffer = '';
       this.restart();
     }
   }
@@ -111,9 +117,13 @@ export class PersistentShell implements vscode.Disposable {
 
     return new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
-        const i = this.#queue.findIndex((e) => e.reject === onReject);
-        if (i >= 0) this.#queue.splice(i, 1);
         reject(new Error(`adb shell command timed out after ${timeoutMs} ms: ${command}`));
+        // The command may still be running, and its sentinel will arrive
+        // eventually -- by which time the head of the queue belongs to someone
+        // else, who would be handed this command's output as their own.
+        // Dropping the entry is what causes that, so the shell goes instead:
+        // nothing here takes seconds, so a timeout means wedged, not slow.
+        this.restart();
       }, timeoutMs);
 
       const onResolve = (out: string) => {
@@ -137,9 +147,20 @@ export class PersistentShell implements vscode.Disposable {
     this.#child?.stdin?.write(`${command}\n`);
   }
 
+  /**
+   * Drops the shell. The next `exec` starts a fresh one.
+   *
+   * The queue is failed here rather than left to the `close` handler, which is
+   * identity-guarded and so deliberately ignores a child we replaced. The
+   * buffer goes too: a half-received line from the dead shell would be read as
+   * the first line of the new one's output.
+   */
   restart(): void {
-    this.#child?.kill('SIGKILL');
+    const child = this.#child;
     this.#child = undefined;
+    this.#buffer = '';
+    child?.kill('SIGKILL');
+    this.#failAll(new Error('adb shell restarted'));
   }
 
   dispose(): void {

@@ -127,26 +127,35 @@ export class DisplayWatcher implements vscode.Disposable {
       if (parsed === undefined) {
         this.#log.debug(`could not read rotation from ${JSON.stringify(out.trim())}`);
       }
-      const geometry = this.#toGeometry(parsed ?? 0);
-      if (
-        !current ||
-        current.rotation !== geometry.rotation ||
-        current.width !== geometry.width ||
-        current.height !== geometry.height
-      ) {
-        this.#log.info(
-          `display ${geometry.width}x${geometry.height} (rotation ${geometry.rotation})`,
-        );
-        this.#geometry = geometry;
-        this.#emitter.fire(geometry);
-      }
-      return geometry;
+      return this.#publish(this.#toGeometry(parsed ?? 0));
     } catch (err) {
       this.#log.debug(`rotation read failed: ${String(err)}`);
-      return current ?? this.#fallback();
+      // Published, not just returned. An unknown geometry is worse than a
+      // wrong one: the input sink drops every event while it is undefined, and
+      // `screenrecord` falls back to a 1080x1920 guess on its next restart,
+      // which changes the stream's aspect ratio mid-session. The natural
+      // orientation is the honest default, and the next poll corrects it.
+      return current ?? this.#publish(this.#fallback());
     } finally {
       this.#reading = false;
     }
+  }
+
+  /** Stores the geometry and announces it, if it actually changed. */
+  #publish(geometry: DisplayGeometry): DisplayGeometry {
+    const current = this.#geometry;
+    if (
+      current &&
+      current.rotation === geometry.rotation &&
+      current.width === geometry.width &&
+      current.height === geometry.height
+    ) {
+      return current;
+    }
+    this.#log.info(`display ${geometry.width}x${geometry.height} (rotation ${geometry.rotation})`);
+    this.#geometry = geometry;
+    this.#emitter.fire(geometry);
+    return geometry;
   }
 
   #toGeometry(rotation: number): DisplayGeometry {

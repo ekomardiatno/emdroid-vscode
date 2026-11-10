@@ -12,11 +12,13 @@ cannot see. EMDroid decodes H.264 **in the webview**, so the picture arrives
 wherever the editor UI is, and the same build works in desktop VS Code and in
 [code-server](https://github.com/coder/code-server).
 
-> **Status: not published, and not yet run against hardware.** Phases 0 and 1
-> are code-complete with 127 passing unit tests, but the two end-to-end gates —
-> a live mirror on a device, and the proxy path in a real browser — have not been
-> walked through yet. The low-latency scrcpy source (phase 2) is designed but not
-> written. See [Roadmap](#roadmap).
+> **Status: not published.** Phases 0 and 1 are code-complete with 132 passing
+> unit tests, and the host side is verified against a real device — `npm run
+> verify:device` drives the shipped adb, capture, input and teardown paths
+> against an attached phone and checks every number this README claims. What is
+> still unwalked is what needs human eyes: a frame actually painted in the
+> editor, and the proxy path in a real browser. The low-latency scrcpy source
+> (phase 2) is designed but not written. See [Roadmap](#roadmap).
 
 ---
 
@@ -102,9 +104,11 @@ Stated plainly, because they are the reason phase 2 exists:
   `app_process` stamping its own `uptimeMillis`, so a drag's moves do not look
   like continuations of their down to anything measuring velocity. Taps and drags
   land.
-- **Stills really are ~0.4 fps**, not the 1–2 fps you might assume: `screencap -p`
-  measured 2.3 MB in 2.6 s on the reference device, and `screencap -j` is not
-  supported there. The honest description is "controllable stills".
+- **Stills are 0.4–1.2 fps**, and which end you get depends on how compressible
+  the screen is: `screencap -p` measured 2.3 MB in 2.6 s on a populated screen
+  and 0.16 MB in 0.85 s on an idle one. `screencap -j` is unsupported on the
+  reference device, so there is no cheaper encoding to reach for. The honest
+  description is "controllable stills".
 
 ## How it works
 
@@ -178,17 +182,39 @@ npm test                                    # all
 node --test --import ./test/stub/register.mjs test/unit/annexb.test.ts
 ```
 
-127 tests cover the Annex B splitting, the SPS-derived codec string, the adb
-output parsers, pointer mapping, shell quoting and a full fixture session end to
-end — including the token guard, the binary framing and byte-identical access
-unit delivery. Every input is **real output measured from a real device**, not
-invented: parsing adb means parsing a human-readable format with no contract,
-and pinning the exact strings is the only defence against drift.
+132 tests cover the Annex B splitting, the SPS-derived codec string, the adb
+output parsers, pointer mapping, shell quoting, the persistent shell's framing
+and a full fixture session end to end — including the token guard, the binary
+framing and byte-identical access unit delivery. Every input is **real output
+measured from a real device**, not invented: parsing adb means parsing a
+human-readable format with no contract, and pinning the exact strings is the
+only defence against drift.
 
-Two things the unit suite cannot prove, because they do not exist outside a
-browser: `asExternalUri` under code-server's proxy, and the WebCodecs decoder.
-Those are the manual gates — run the transport spike in desktop VS Code *and* in
-a real browser against your code-server host.
+### Verifying against a real device
+
+```bash
+npm run verify:device            # needs a phone attached; EMDROID_SERIAL to choose
+```
+
+This drives the shipped host classes against the device and asserts the things
+only hardware can answer: that the recorder starts and opens on a key frame,
+that every key access unit carries its parameter sets, that the capture size
+survives a restart, that `requestKeyFrame()` works, that input round-trips (it
+sends `KEYCODE_WAKEUP` only — never a tap, which would open something), and that
+no `screenrecord` survives `dispose()`. It then prints the measured latency,
+frame rate and still cadence.
+
+It is worth the hour it took: it found three bugs the 132 unit tests could not
+see, all of which failed **silently** — the persistent shell was spawned with
+`stdin: 'ignore'`, so every tap and rotation read wrote to a dead pipe; a failed
+rotation read left the geometry undefined, which made a recorder restart change
+the stream's aspect ratio; and a timed-out command's late reply was handed to
+the next caller as their own output.
+
+Two things neither suite can prove, because they do not exist outside a browser:
+`asExternalUri` under code-server's proxy, and the WebCodecs decoder. Those stay
+manual — run the transport spike in desktop VS Code *and* in a real browser
+against your code-server host.
 
 ### Notes for anyone extending this
 
